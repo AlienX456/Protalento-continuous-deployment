@@ -149,6 +149,50 @@ resource "aws_ecs_service" "protalento_service" {
   }
 }
 
+// LOAD BALANCER
+
+resource "aws_lb_listener" "backend" {
+  load_balancer_arn = aws_lb.protalento_lb.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.protalento_tg.arn
+  }
+}
+
+resource "aws_lb" "protalento_lb" {
+  name               = "protalento-cluster"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.allow_tls.id]
+  subnets            = [aws_subnet.protalento_subnet.id, aws_subnet.protalento_subnet_2.id]
+
+  enable_deletion_protection = false
+
+  tags = {
+    Environment = "production"
+  }
+}
+
+resource "aws_lb_target_group" "protalento_tg" {
+  name     = "protalento-tg"
+  port     = 8080
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.protalento_vpc.id
+  target_type = "ip"
+
+  health_check {
+    path = "/get-hello"
+    healthy_threshold = 3
+    unhealthy_threshold = 10
+    timeout = 5
+    interval = 10
+    matcher = "200-499"
+  }
+}
+
 
 // CLOUDWATCH
 resource "aws_cloudwatch_log_group" "service_cw" {
