@@ -7,6 +7,7 @@ terraform {
 }
 
 // NETWORK
+
 resource "aws_ecs_cluster" "protalento_cluster" {
   name = "protalento-cluster"
 }
@@ -21,32 +22,61 @@ resource "aws_vpc" "protalento_vpc" {
 
 resource "aws_subnet" "protalento_subnet" {
   vpc_id     = aws_vpc.protalento_vpc.id
-  cidr_block = "10.0.0.0/16"
+  cidr_block = "10.0.0.0/17"
+  availability_zone = "us-east-1a"
+
+  tags = {
+    Name = "protalento-a"
+  }
+}
+
+resource "aws_subnet" "protalento_subnet_2" {
+  vpc_id     = aws_vpc.protalento_vpc.id
+  cidr_block = "10.0.128.0/17"
+  availability_zone = "us-east-1b"
+
+  tags = {
+    Name = "protalento-b"
+  }
+}
+
+resource "aws_internet_gateway" "protalento_gw" {
+  vpc_id = aws_vpc.protalento_vpc.id
+
+  tags = {
+    Name = "protalento-ig"
+  }
+}
+
+resource "aws_route_table" "route" {
+  vpc_id = aws_vpc.protalento_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.protalento_gw.id
+  }
 
   tags = {
     Name = "protalento"
   }
 }
 
-// IMAGE
-
-resource "aws_ecr_repository" "protalentp_ecr" {
-  name                 = "protalento-hello-world"
-  image_tag_mutability = "MUTABLE"
+resource "aws_main_route_table_association" "association" {
+  vpc_id     = aws_vpc.protalento_vpc.id
+  route_table_id = aws_route_table.route.id
 }
 
-// SERVICE
 resource "aws_security_group" "allow_tls" {
   name        = "protalento-allow-tls"
   description = "Allow TLS inbound traffic"
   vpc_id      = aws_vpc.protalento_vpc.id
 
   ingress {
-    description      = "TLS from VPC"
-    from_port        = 443
-    to_port          = 443
-    protocol         = "tcp"
-    cidr_blocks      = [aws_vpc.protalento_vpc.cidr_block]
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
   }
 
   egress {
@@ -62,26 +92,14 @@ resource "aws_security_group" "allow_tls" {
   }
 }
 
-resource "aws_lb" "protalento_lb" {
-  name               = "protalento_cluster"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.allow_tls.id]
-  subnets            = [for subnet in aws_subnet.protalento_subnet : subnet.id]
+// IMAGE
 
-  enable_deletion_protection = true
-
-  tags = {
-    Environment = "production"
-  }
+resource "aws_ecr_repository" "protalento_ecr" {
+  name                 = "protalento-hello-world"
+  image_tag_mutability = "MUTABLE"
 }
 
-resource "aws_lb_target_group" "protalento_tg" {
-  name     = "protalento-tg"
-  port     = 8080
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.protalento_vpc.id
-}
+// SERVICE
 
 resource "aws_ecs_task_definition" "protalento_td" {
   family                   = "protalento-hello-world-td"
@@ -89,26 +107,40 @@ resource "aws_ecs_task_definition" "protalento_td" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
+  execution_role_arn       = "arn:aws:iam::${var.account_id}:role/ProtalentoTaskExecutionRole"
   container_definitions    = <<TASK_DEFINITION
 [
   {
     "name": "protalento-hello-world",
-    "image": ${aws_ecr_repository.protalentp_ecr.repository_url}/${var.image_name},
+    "image": "${var.account_id}.dkr.ecr.us-east-1.amazonaws.com/protalento-hello-world:first-push",
     "cpu": 256,
     "memory": 512,
-    "essential": true
+    "essential": true,
+    "portMappings": [{"containerPort": 8080}],
+    "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+            "awslogs-group": "/ecs/hello-world-service",
+            "awslogs-region": "us-east-1",
+            "awslogs-stream-prefix": "ecs"
+        }
+    }
   }
 ]
 TASK_DEFINITION
 }
 
 resource "aws_ecs_service" "protalento_service" {
-  name            = "hello-world-service"
-  cluster         = aws_ecs_cluster.protalento_cluster.id
-  task_definition = aws_ecs_task_definition.protalento_td
-  desired_count   = 1
-  launch_type = "FARGATE"
+  name                 = "hello-world-service"
+  cluster              = aws_ecs_cluster.protalento_cluster.id
+  task_definition      = aws_ecs_task_definition.protalento_td.id
+  desired_count        = 1
+  launch_type          = "FARGATE"
 
+  network_configuration {
+    subnets = [aws_subnet.protalento_subnet.id]
+    assign_public_ip = true
+  }
 
   load_balancer {
     target_group_arn = aws_lb_target_group.protalento_tg.arn
@@ -117,8 +149,14 @@ resource "aws_ecs_service" "protalento_service" {
   }
 }
 
-//VARIABLES
 
-variable "image_name" {
+// CLOUDWATCH
+resource "aws_cloudwatch_log_group" "service_cw" {
+  name = "/ecs/hello-world-service"
+}
+
+// VARIABLE
+
+variable "account_id" {
   type = string
 }
