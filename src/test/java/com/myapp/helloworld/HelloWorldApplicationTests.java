@@ -16,7 +16,7 @@ class HelloWorldApplicationTests {
     @Test
     public void ifCallGetHello_ThenReturnHelloWord() {
         String body = this.restTemplate.getForObject("/get-hello", String.class);
-        assertThat(body).isEqualTo("Hello World! Everyone");
+        assertThat(body).isEqualTo("Hello World! Everyone!!");
     }
 
 }
