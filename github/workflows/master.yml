@@ -3,7 +3,7 @@ name: Hello World! Deploy
 on:
   push:
     branches:
-      - 'main'
+      - 'master'
 
 jobs:
   test:
