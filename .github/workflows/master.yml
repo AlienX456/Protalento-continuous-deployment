@@ -54,7 +54,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Add account id to json
-        run: sed -i 's/ACCOUNT_ID/${AWS_ACCOUNT_ID}/g' task-definition.json
+        run: sed -i 's/ACCOUNT_ID/'${secrets.AWS_ACCOUNT_ID}'/g' task-definition.json
 
       - name: Login to Amazon ECR
         id: login-ecr
